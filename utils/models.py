@@ -412,8 +412,6 @@ class DecoderRNNV4(nn.Module):
         return sampled_caption
 
 
-
-
 class DecoderRNNV5(nn.Module):
     def __init__(self, embed_size, hidden_size, vocab_size, not_used):
         super(DecoderRNNV5, self).__init__()
@@ -492,7 +490,8 @@ class CNNtoRNN(nn.Module):
         super(CNNtoRNN, self).__init__()
         if start:
             self.encoderCNN = EncoderCNNV2(embed_size, train_CNN).to(device)
-            self.decoderRNN = DecoderRNNV4(embed_size, hidden_size, vocab_size, n_features).to(device)
+            # self.decoderRNN = DecoderRNNV4(embed_size, hidden_size, vocab_size, n_features).to(device)
+            self.decoderRNN = MultiDecoder(embed_size, hidden_size, vocab_size)
         else: 
             self.encoderCNN = None
             self.decoderRNN = None
@@ -502,18 +501,11 @@ class CNNtoRNN(nn.Module):
         outputs = self.decoderRNN(features, captions, length)
         return outputs
 
-    # def caption_images(self, image, vocab, max_len=50):
-    #     # Inference part
-    #     # Given the image features generate the captions
-    #     features = self.encoderCNN(image)
-    #     decoded = self.decoderRNN.caption_features(features, vocab, max_len)
-    #     return decoded
-
 
     def caption_image(self, image, vocab, max_len):
         with torch.no_grad():
             features = self.encoderCNN(image)
-        output = self.decoderRNN.caption_features(features, vocab, max_len)
+            output = self.decoderRNN.caption_features(features, vocab, max_len)
         return output
 
     '''def train(self, mode=True):
@@ -522,3 +514,96 @@ class CNNtoRNN(nn.Module):
             self.encoderCNN.eval()
         return self
     '''
+
+
+class MultiDecoder(nn.Module):
+    def __init__(self, embed_size, hidden_size, vocab_size, *args) -> None:
+        super(MultiDecoder, self).__init__()
+        self.hidden_size = hidden_size
+        self.embed_size = embed_size
+        self.vocab_size = vocab_size
+        self.rnn_layers = 3
+        self.attn_layers = 3
+        self.embed = nn.Embedding(vocab_size, embed_size)
+        self.attn_decoder = nn.Transformer(512, 4, 3, 3, batch_first=True, dim_feedforward=1024)
+        self.rnn_decoder = nn.GRU(input_size=embed_size, hidden_size=hidden_size, num_layers=self.rnn_layers, batch_first=True)
+        self.fc_rnn_out = nn.Linear(hidden_size, vocab_size)
+        self.fc_attn_out = nn.Linear(embed_size, vocab_size)
+
+    def forward(self, features, captions, cap_lengths):
+        """
+        Forward pass using encoders output and training labels
+
+        Args:
+            features (torch.Tensor): Encoder output, shape = (B, E)
+            captions (torch.Tensor): Training labels, shape = (B, L)
+            cap_lengths (list): Real captions lengths, used for sequence packing for the RNN network
+        """
+        # Initialization and metadata
+        captions_embed = self.embed(captions)
+        cap_lengths = cap_lengths.tolist()
+        self.rnn_decoder.flatten_parameters()
+
+        # RNN Decoder
+        feat_unsqueeze = features.unsqueeze(dim=1)
+        combined = torch.cat((feat_unsqueeze, captions_embed), dim=1)
+
+        packed = pack_padded_sequence(combined, cap_lengths, batch_first=True, enforce_sorted=False)
+        rnn_out, _ = self.rnn_decoder(packed)
+        # unpack so we can use Linear function (works on Tensor not packSeq)
+        rnn_output_padded, _ = pad_packed_sequence(rnn_out, batch_first=True, total_length=captions.shape[1])
+        rnn_out_fc = self.fc_rnn_out(rnn_output_padded)
+
+        # Attention Decoder
+        attn_out = self.attn_decoder(combined, captions_embed)
+        attn_out_fc = self.fc_attn_out(attn_out)
+
+        return rnn_out_fc, attn_out_fc
+    
+    def caption_features(self, features, vocabulary, max_len=77):
+        # TODO: Peleg this is where we need the smart beam search
+        # TODO: Add transformer support 
+        """Generate captions for given image features using greedy search."""
+        states = None
+        sampled_ids = []
+        inputs = features.unsqueeze(1)
+        for _ in range(max_len):
+            hiddens, states = self.rnn_decoder(inputs, states)          # hiddens: (batch_size, 1, hidden_size)
+            outputs = self.fc_rnn_out(hiddens.squeeze(1))            # outputs:  (batch_size, vocab_size)
+            _, predicted = outputs.max(1)                        # predicted: (batch_size)
+            sampled_ids.append(predicted)
+            inputs = self.embed(predicted)                       # inputs: (batch_size, embed_size)
+            inputs = inputs.unsqueeze(1)                         # inputs: (batch_size, 1, embed_size)
+            
+
+        sampled_ids = torch.stack(sampled_ids, 1)                # sampled_ids: (batch_size, max_seq_length)
+        sampled_ids = sampled_ids[0].cpu().numpy()               # (1, max_len) -> (max_len)
+        sampled_caption = []
+        for word_id in sampled_ids:
+            word = vocabulary.itos[word_id]
+            sampled_caption.append(word)
+            if word == "<EOS>":
+                break
+        return sampled_caption
+
+        
+
+
+
+if __name__ == '__main__':
+    from dataset import get_dataloader, get_dataset
+    imgs = "/home/yandex/DLW2021/davidhay/coco/train2017/"
+    annots = "/home/yandex/DLW2021/davidhay/coco/annotations/captions_train2017.json"
+    batch = 2
+    ds = get_dataset(imgs, annots)
+    loader = get_dataloader(ds, batch, shuffle=False)
+    embed_size = 512
+    hidden_size = 1024
+    enc = EncoderCNNV2(embed_size, False)
+    dec = MultiDecoder(embed_size, hidden_size, len(ds.vocab))
+    iterator = iter(loader)
+    img, caption, length = next(iterator)
+    features = enc(img)
+    decoding = dec(features, caption, length)
+    print(f"RNN out: {decoding[0].shape}")
+    print(f"ATTN out: {decoding[1].shape}")

@@ -7,6 +7,7 @@ import pickle
 from .vocab import Vocabulary
 import os
 from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data.distributed import DistributedSampler
 
 
 class COCODataset(Dataset):
@@ -164,12 +165,12 @@ def get_dataloader(dataset: COCODataset, batch_size: int = 4, workers: int= 1, s
         vec_len (int, optional): Length of captions vector
     """
     pad_idx = dataset.vocab.stoi["<PAD>"]
-
     data_loader = DataLoader(
         dataset=dataset,
         batch_size=batch_size,
-        num_workers=workers,
+        num_workers=0,
         shuffle=shuffle,
-        collate_fn=new_collate
+        collate_fn=new_collate,
+        pin_memory=True
     )
     return data_loader
