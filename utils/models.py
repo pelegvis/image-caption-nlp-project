@@ -568,12 +568,23 @@ class MultiDecoder(nn.Module):
         sampled_ids = []
         inputs = features.unsqueeze(1)
         for _ in range(max_len):
+            # get predicted word from rnn decoder
+            # TODO: here need to think how to change states variable to change according to the word we chose.
             hiddens, states = self.rnn_decoder(inputs, states)          # hiddens: (batch_size, 1, hidden_size)
             outputs = self.fc_rnn_out(hiddens.squeeze(1))            # outputs:  (batch_size, vocab_size)
-            _, predicted = outputs.max(1)                        # predicted: (batch_size)
+            _, predicted_rnn = outputs.max(1)                        # predicted_rnn: (batch_size)
+
+            # get predicted word from attention decoder
+            # TODO: Tamir, here need to get chosen word from attention decoder (and to be batch size)
+            #attn_out = self.attn_decoder(inputs)
+            #attn_out_fc = self.fc_attn_out(attn_out)
+            predicted_attn = None                                   # predicted_attn: (batch_size)
+            
+            predicted = torch.maximum(predicted_rnn, predicted_attn)    # choose word with max embed value (batch_size)
             sampled_ids.append(predicted)
             inputs = self.embed(predicted)                       # inputs: (batch_size, embed_size)
             inputs = inputs.unsqueeze(1)                         # inputs: (batch_size, 1, embed_size)
+
             
 
         sampled_ids = torch.stack(sampled_ids, 1)                # sampled_ids: (batch_size, max_seq_length)
