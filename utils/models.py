@@ -524,6 +524,7 @@ class MultiDecoder(nn.Module):
         self.vocab_size = vocab_size
         self.rnn_layers = 3
         self.attn_layers = 3
+        self.k = 2
         self.embed = nn.Embedding(vocab_size, embed_size)
         self.attn_decoder = nn.Transformer(512, 4, 3, 3, batch_first=True, dim_feedforward=1024)
         self.rnn_decoder = nn.GRU(input_size=embed_size, hidden_size=hidden_size, num_layers=self.rnn_layers, batch_first=True)
@@ -563,79 +564,51 @@ class MultiDecoder(nn.Module):
     def caption_features(self, features, vocabulary, max_len=77):
         """Generate captions for given image features using greedy search."""
         # init
-        states_1 = None
-        states_2 = None
-        sampled_ids_1a = []
-        sampled_ids_1b = []
-        sampled_ids_2a = []
-        sampled_ids_2b = []
+        K = self.k
+        states = [ None for j in range (K) ]
+        hiddens = [ None for j in range (K) ]
+        rnn_prev_sampled = [ None for j in range (K) ]
+        attn_prev_sampled = [ None for j in range (K) ]
         inputs = features.unsqueeze(1)
-        rnn_inputs_1 = inputs.copy()        
-        rnn_inputs_2 = inputs.copy()
-        attn_inputs_1 = inputs.copy()
-        attn_inputs_2 = inputs.copy()
-        attn_target_1 = self.embed(1) # Embed <SOS>
-        attn_target_2 = self.embed(1) # Embed <SOS>
-        score_sent_1 = 0
-        score_sent_2 = 0
-        score_sent_3 = 0
-        score_sent_4 = 0
-
-        # round 1
-        # hiddens_1, states_1 = self.rnn_decoder(rnn_inputs_1, states_1)          # hiddens: (batch_size, 1, hidden_size)
-        # rnn_outputs_1 = self.fc_rnn_out(hiddens_1.squeeze(1))            # outputs:  (batch_size, vocab_size)
-        # rnn_values, rnn_score = rnn_outputs_1.topk(k=2)      # rnn_predicted: (batch_size)
-
+        rnn_inputs = [ inputs.copy() for j in range(K) ]
+        attn_inputs = [ inputs.copy() for j in range(K) ]
+        attn_target = [self.embed(1) for j in range(K) ]    # Embed <SOS>
+        rnn_sent_score = [0 for j in range(K)]
+        attn_sent_score = [0 for j in range(K)]
+        
         # produce 2 captions
-        for i in range(max_len):
+        for _ in range(max_len):
             scores_list = []
 
-            # get predicted word from rnn decoder 1
-            hiddens_1, states_1 = self.rnn_decoder(rnn_inputs_1, states_1)          # hiddens: (batch_size, 1, hidden_size)
-            rnn_outputs_1 = self.fc_rnn_out(hiddens_1.squeeze(1))            # outputs:  (batch_size, vocab_size)
-            rnn_score_1, rnn_predicted_1 = rnn_outputs_1.max(1)      # rnn_predicted: (batch_size)
-            score_sent_1 += rnn_score_1
-            scores_list.append(score_sent_1, rnn_predicted_1, sampled_ids_1a.append(rnn_predicted_1))
-            # get predicted word from rnn decoder 2
-            hiddens_2, states_2 = self.rnn_decoder(rnn_inputs_2, states_2)          # hiddens: (batch_size, 1, hidden_size)
-            rnn_outputs_2 = self.fc_rnn_out(hiddens_2.squeeze(1))            # outputs:  (batch_size, vocab_size)
-            rnn_score_2, rnn_predicted_2 = rnn_outputs_2.max(1)      # rnn_predicted: (batch_size)
-            score_sent_2 += rnn_score_2
-            scores_list.append(score_sent_2, rnn_predicted_2, sampled_ids_2a.append(rnn_predicted_2))
-
-            # get predicted word from attention decoder 1
-            attn_out_1 = self.attn_decoder(attn_inputs_1, attn_target_1)
-            attn_outputs_1 = self.fc_attn_out(attn_out_1)
-            attn_score_1, attn_predicted_1 = attn_outputs_1.max(1)      # attn_predicted: (batch_size)
-            score_sent_3 += attn_score_1
-            scores_list.append(score_sent_3, attn_predicted_1, sampled_ids_1b.append(attn_predicted_1))
-            # get predicted word from attention decoder 2
-            attn_out_2 = self.attn_decoder(attn_inputs_2, attn_target_2)
-            attn_outputs_2 = self.fc_attn_out(attn_out_2)
-            attn_score_2, attn_predicted_2 = attn_outputs_2.max(1)
-            score_sent_4 += attn_score_2
-            scores_list.append(score_sent_4, attn_predicted_2, sampled_ids_2b.append(attn_predicted_2))
-
-
-            scores_list = sorted(scores_list, key=lambda i: i[0])   # sort sentences according to the sentenece's score
-            predicted_1 = scores_list[0]
-            predicted_2 = scores_list[1]
-            sampled_ids_1a = predicted_1[2]
-            sampled_ids_1b = sampled_ids_1a.copy()
-            sampled_ids_2a = predicted_2[2]
-            sampled_ids_2b = sampled_ids_2a.copy()
-            attn_target_1 = self.embed(predicted_1[1])           # inputs: (batch_size, embed_size)
-            attn_target_2 = self.embed(predicted_2[1]) 
-            attn_inputs_1 = attn_target_1.unsqueeze(1)          # inputs: (batch_size, 1, embed_size)
-            attn_inputs_2 = attn_target_2.unsqueeze(1)
-            rnn_inputs_1 = attn_inputs_1.copy()
-            rnn_inputs_2 = attn_inputs_2.copy()
-            score_sent_1 = predicted_1[0]
-            score_sent_2 = predicted_2[0]
-            score_sent_3 = predicted_1[0]
-            score_sent_4 = predicted_2[0]
+            # get predicted word from rnn decoder
+            for i in range(K):
+                hiddens[i], states[i] = self.rnn_decoder(rnn_inputs[i], states[i])          # hiddens: (batch_size, 1, hidden_size)
+                rnn_outputs = self.fc_rnn_out(hiddens[i].squeeze(1))            # outputs:  (batch_size, vocab_size)
+                rnn_tmp_score, rnn_tmp_predicted = rnn_outputs.max(1)      # rnn_predicted: (batch_size)
+                rnn_sent_score[i] += rnn_tmp_score
+                scores_list.append(rnn_sent_score[i], rnn_tmp_predicted, rnn_prev_sampled[i].append(rnn_tmp_predicted))
             
-        sampled_list = [sampled_ids_1a, sampled_ids_2a]
+            # get predicted word from attention decoder
+            for i in range(K):
+                attn_out = self.attn_decoder(attn_inputs[i], attn_target[i])
+                attn_outputs = self.fc_attn_out(attn_out)
+                attn_tmp_score, attn_tmp_predicted = attn_outputs.max(1)      # attn_predicted: (batch_size)
+                attn_sent_score[i] += attn_tmp_score
+                scores_list.append(attn_sent_score[i], attn_tmp_predicted, attn_prev_sampled[i].append(attn_tmp_predicted))
+            
+            scores_list = sorted(scores_list, key=lambda i: i[0])   # sort sentences according to the sentenece's score
+            # set variables for next round
+            for i in range(K):
+                curr_prediction = scores_list[i]
+                rnn_prev_sampled[i] = curr_prediction[2]
+                attn_prev_sampled[i] = curr_prediction[2]
+                attn_target[i] = self.embed(curr_prediction[1])
+                attn_inputs[i] = attn_target[i].unsqueeze(1)
+                rnn_inputs[i] = attn_inputs[i].copy()
+                rnn_sent_score[i] = curr_prediction[0]
+                attn_sent_score[i] = curr_prediction[0]
+            
+        sampled_list = rnn_prev_sampled + attn_prev_sampled
         final_captions = []
         for sampled_ids in sampled_list:
             sampled_ids = torch.stack(sampled_ids, 1)                # sampled_ids: (batch_size, max_seq_length)
@@ -650,8 +623,6 @@ class MultiDecoder(nn.Module):
         return final_captions
 
         
-
-
 
 if __name__ == '__main__':
     #from dataset import get_dataloader, get_dataset
