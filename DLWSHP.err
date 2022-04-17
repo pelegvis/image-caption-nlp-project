@@ -1,0 +1,23 @@
+/home/yandex/DLW2021/pelegv/anaconda3/lib/python3.8/site-packages/torchvision/transforms/transforms.py:280: UserWarning: Argument interpolation should be of type InterpolationMode instead of int. Please, use InterpolationMode enum.
+  warnings.warn(
+  0%|          | 0/1 [00:00<?, ?it/s]/home/yandex/DLW2021/pelegv/anaconda3/lib/python3.8/site-packages/torch/nn/functional.py:718: UserWarning: Named tensors and all their associated APIs are an experimental feature and subject to change. Please do not use them for anything important until they are released as stable. (Triggered internally at  /opt/conda/conda-bld/pytorch_1623448234945/work/c10/core/TensorImpl.h:1156.)
+  return torch.max_pool2d(input, kernel_size, stride, padding, dilation, ceil_mode)
+  0%|          | 0/1 [00:02<?, ?it/s]
+Traceback (most recent call last):
+  File "main.py", line 65, in <module>
+    overfit(model, device, data_loader, args.T, 2)
+  File "/home/yandex/DLW2021/pelegv/image-caption-nlp-project/utils/train.py", line 159, in overfit
+    demo_cap = model.caption_image(img[0:1].to(
+  File "/home/yandex/DLW2021/pelegv/image-caption-nlp-project/utils/models.py", line 509, in caption_image
+    output = self.decoderRNN.caption_features(features, vocab, max_len)
+  File "/home/yandex/DLW2021/pelegv/image-caption-nlp-project/utils/models.py", line 576, in caption_features
+    attn_target = [self.embed(torch.tensor([1])) for j in range(K) ]    # Embed <SOS>
+  File "/home/yandex/DLW2021/pelegv/image-caption-nlp-project/utils/models.py", line 576, in <listcomp>
+    attn_target = [self.embed(torch.tensor([1])) for j in range(K) ]    # Embed <SOS>
+  File "/home/yandex/DLW2021/pelegv/anaconda3/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1051, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/home/yandex/DLW2021/pelegv/anaconda3/lib/python3.8/site-packages/torch/nn/modules/sparse.py", line 158, in forward
+    return F.embedding(
+  File "/home/yandex/DLW2021/pelegv/anaconda3/lib/python3.8/site-packages/torch/nn/functional.py", line 2043, in embedding
+    return torch.embedding(weight, input, padding_idx, scale_grad_by_freq, sparse)
+RuntimeError: Expected all tensors to be on the same device, but found at least two devices, cuda:0 and cpu! (when checking arugment for argument index in method wrapper_index_select)

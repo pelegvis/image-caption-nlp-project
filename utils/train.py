@@ -6,7 +6,7 @@ import torch
 from functools import partial
 from tqdm import tqdm
 import sys
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 import os
 
 def show_image(img, title=None, transform=True, f_name=""):
@@ -139,6 +139,7 @@ def overfit(model, device, data_loader, T=250, img_n = 1):
         img, caption, length = next(dataiter)
     img = img.to(device)
     caption = caption.to(device).long()
+    length = torch.tensor(length).to(device)
     for i in tqdm_bar(range(T)):
         optimizer.zero_grad()
         # train on the same image and caption to achieve overfitting
@@ -157,9 +158,13 @@ def overfit(model, device, data_loader, T=250, img_n = 1):
         with torch.no_grad():
             demo_cap = model.caption_image(img[0:1].to(
                 device), vocab=data_loader.dataset.vocab, max_len=15)
-        demo_cap = ' '.join(demo_cap)
+        final_cap = [None for i in range(2)]
+        for i in range(2):
+            final_cap[i] = ' '.join(demo_cap[i])
         model.train()
-        print(demo_cap)
+        #for i in range(2):
+            #print(final_cap[i])
+            #print("")
                
 
     output = model(img, caption, length)[1]
@@ -175,7 +180,7 @@ def overfit(model, device, data_loader, T=250, img_n = 1):
         model.eval()
         demo_cap = model.caption_image(show_img[0:1].to(
             device), vocab=data_loader.dataset.vocab, max_len=15)
-        demo_cap = ' '.join(demo_cap)
+        demo_cap = ' '.join(demo_cap[0])
         model.train()
         print(demo_cap)
     #    show_image(show_img[0], title=demo_cap,

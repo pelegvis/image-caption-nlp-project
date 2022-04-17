@@ -11,6 +11,7 @@ device = None
 def get_device(gpus=1):
     if gpus == 1:
         return "cuda" if torch.cuda.is_available() else "cpu"
+    
     else:
         if torch.cuda.is_available():
             return f"cuda:{gpus-1}"
@@ -567,12 +568,12 @@ class MultiDecoder(nn.Module):
         K = self.k
         states = [ None for j in range (K) ]
         hiddens = [ None for j in range (K) ]
-        rnn_prev_sampled = [ None for j in range (K) ]
-        attn_prev_sampled = [ None for j in range (K) ]
+        rnn_prev_sampled = [ [] for j in range (K) ]
+        attn_prev_sampled = [ [] for j in range (K) ]
         inputs = features.unsqueeze(1)
-        rnn_inputs = [ inputs.copy() for j in range(K) ]
-        attn_inputs = [ inputs.copy() for j in range(K) ]
-        attn_target = [self.embed(1) for j in range(K) ]    # Embed <SOS>
+        rnn_inputs = [ inputs.clone() for j in range(K) ]
+        attn_inputs = [ inputs.clone() for j in range(K) ]
+        attn_target = [self.embed(torch.tensor([1]).to(device)).unsqueeze(1) for j in range(K) ]    # Embed <SOS>
         rnn_sent_score = [0 for j in range(K)]
         attn_sent_score = [0 for j in range(K)]
         
@@ -586,25 +587,29 @@ class MultiDecoder(nn.Module):
                 rnn_outputs = self.fc_rnn_out(hiddens[i].squeeze(1))            # outputs:  (batch_size, vocab_size)
                 rnn_tmp_score, rnn_tmp_predicted = rnn_outputs.max(1)      # rnn_predicted: (batch_size)
                 rnn_sent_score[i] += rnn_tmp_score
-                scores_list.append(rnn_sent_score[i], rnn_tmp_predicted, rnn_prev_sampled[i].append(rnn_tmp_predicted))
+                rnn_prev_sampled[i].append(rnn_tmp_predicted)
+                scores_list.append([rnn_sent_score[i], rnn_tmp_predicted, rnn_prev_sampled[i]])
             
             # get predicted word from attention decoder
             for i in range(K):
                 attn_out = self.attn_decoder(attn_inputs[i], attn_target[i])
                 attn_outputs = self.fc_attn_out(attn_out)
-                attn_tmp_score, attn_tmp_predicted = attn_outputs.max(1)      # attn_predicted: (batch_size)
-                attn_sent_score[i] += attn_tmp_score
-                scores_list.append(attn_sent_score[i], attn_tmp_predicted, attn_prev_sampled[i].append(attn_tmp_predicted))
+                attn_tmp_score, attn_tmp_predicted = attn_outputs.data.topk(1)      # attn_predicted: (batch_size)
+                attn_sent_score[i] += attn_tmp_score.squeeze(1).squeeze(1)
+                attn_prev_sampled[i].append(attn_tmp_predicted.squeeze(1).squeeze(1))
+                scores_list.append([attn_sent_score[i], attn_tmp_predicted, attn_prev_sampled[i]])
             
             scores_list = sorted(scores_list, key=lambda i: i[0])   # sort sentences according to the sentenece's score
             # set variables for next round
             for i in range(K):
                 curr_prediction = scores_list[i]
+                curr_prediction[1] = torch.reshape(curr_prediction[1], (1, ))
+                #curr_prediction[1].unsqueeze(1)
                 rnn_prev_sampled[i] = curr_prediction[2]
                 attn_prev_sampled[i] = curr_prediction[2]
-                attn_target[i] = self.embed(curr_prediction[1])
-                attn_inputs[i] = attn_target[i].unsqueeze(1)
-                rnn_inputs[i] = attn_inputs[i].copy()
+                attn_target[i] = self.embed(curr_prediction[1]).unsqueeze(1)
+                attn_inputs[i] = attn_target[i].clone()
+                rnn_inputs[i] = attn_target[i].clone()
                 rnn_sent_score[i] = curr_prediction[0]
                 attn_sent_score[i] = curr_prediction[0]
             
@@ -627,8 +632,8 @@ class MultiDecoder(nn.Module):
 if __name__ == '__main__':
     #from dataset import get_dataloader, get_dataset
     '''
-    imgs = "/home/yandex/DLW2021/davidhay/coco/train2017/"
-    annots = "/home/yandex/DLW2021/davidhay/coco/annotations/captions_train2017.json"
+    imgs = "/home/yandex/DLW2021/pelegv/coco/train2017/"
+    annots = "/home/yandex/DLW2021/pelegv/coco/annotations/captions_train2017.json"
     batch = 2
     ds = get_dataset(imgs, annots)
     loader = get_dataloader(ds, batch, shuffle=False)
