@@ -11,6 +11,7 @@ device = None
 def get_device(gpus=1):
     if gpus == 1:
         return "cuda" if torch.cuda.is_available() else "cpu"
+    
     else:
         if torch.cuda.is_available():
             return f"cuda:{gpus-1}"
@@ -524,6 +525,7 @@ class MultiDecoder(nn.Module):
         self.vocab_size = vocab_size
         self.rnn_layers = 3
         self.attn_layers = 3
+        self.k = 2
         self.embed = nn.Embedding(vocab_size, embed_size)
         self.attn_decoder = nn.Transformer(512, 4, 3, 3, batch_first=True, dim_feedforward=1024)
         self.rnn_decoder = nn.GRU(input_size=embed_size, hidden_size=hidden_size, num_layers=self.rnn_layers, batch_first=True)
@@ -561,56 +563,77 @@ class MultiDecoder(nn.Module):
         return rnn_out_fc, attn_out_fc
     
     def caption_features(self, features, vocabulary, max_len=77):
-        # TODO: Peleg this is where we need the smart beam search
-        # TODO: Add transformer support 
         """Generate captions for given image features using greedy search."""
-        states = None
-        sampled_ids = []
+        # init
+        K = self.k
+        states = [ None for j in range (K) ]
+        hiddens = [ None for j in range (K) ]
+        rnn_prev_sampled = [ [] for j in range (K) ]
+        attn_prev_sampled = [ [] for j in range (K) ]
         inputs = features.unsqueeze(1)
-        attn_inputs = inputs.copy()
-        attn_target = self.embed() # Embed <SOS>
-        # <SOS> -> <SOS> A | <SOS> B
+        rnn_inputs = [ inputs.clone() for j in range(K) ]
+        attn_inputs = [ inputs.clone() for j in range(K) ]
+        attn_target = [self.embed(torch.tensor([1]).to(device)).unsqueeze(1) for j in range(K) ]    # Embed <SOS>
+        rnn_sent_score = [0 for j in range(K)]
+        attn_sent_score = [0 for j in range(K)]
+        
+        # produce 2 captions
         for _ in range(max_len):
+            scores_list = []
+
             # get predicted word from rnn decoder
-            # TODO: here need to think how to change states variable to change according to the word we chose.
-            hiddens, states = self.rnn_decoder(inputs, states)          # hiddens: (batch_size, 1, hidden_size)
-            outputs = self.fc_rnn_out(hiddens.squeeze(1))            # outputs:  (batch_size, vocab_size)
-            _, predicted_rnn = outputs.max(1)                        # predicted_rnn: (batch_size)
-
+            for i in range(K):
+                hiddens[i], states[i] = self.rnn_decoder(rnn_inputs[i], states[i])          # hiddens: (batch_size, 1, hidden_size)
+                rnn_outputs = self.fc_rnn_out(hiddens[i].squeeze(1))            # outputs:  (batch_size, vocab_size)
+                rnn_tmp_score, rnn_tmp_predicted = rnn_outputs.max(1)      # rnn_predicted: (batch_size)
+                rnn_sent_score[i] += rnn_tmp_score
+                rnn_prev_sampled[i].append(rnn_tmp_predicted)
+                scores_list.append([rnn_sent_score[i], rnn_tmp_predicted, rnn_prev_sampled[i]])
+            
             # get predicted word from attention decoder
-            # TODO: Tamir, here need to get chosen word from attention decoder (and to be batch size)
-
-            attn_out = self.attn_decoder(attn_inputs, attn_target)
-            attn_out_fc = self.fc_attn_out(attn_out)
-            # Update target with latest addition
+            for i in range(K):
+                attn_out = self.attn_decoder(attn_inputs[i], attn_target[i])
+                attn_outputs = self.fc_attn_out(attn_out)
+                attn_tmp_score, attn_tmp_predicted = attn_outputs.data.topk(1)      # attn_predicted: (batch_size)
+                attn_sent_score[i] += attn_tmp_score.squeeze(1).squeeze(1)
+                attn_prev_sampled[i].append(attn_tmp_predicted.squeeze(1).squeeze(1))
+                scores_list.append([attn_sent_score[i], attn_tmp_predicted, attn_prev_sampled[i]])
             
-            attn_score, predicted_attn = attn_out_fc.max(1)   # predicted_attn: (batch_size)
+            scores_list = sorted(scores_list, key=lambda i: i[0])   # sort sentences according to the sentenece's score
+            # set variables for next round
+            for i in range(K):
+                curr_prediction = scores_list[i]
+                curr_prediction[1] = torch.reshape(curr_prediction[1], (1, ))
+                #curr_prediction[1].unsqueeze(1)
+                rnn_prev_sampled[i] = curr_prediction[2]
+                attn_prev_sampled[i] = curr_prediction[2]
+                attn_target[i] = self.embed(curr_prediction[1]).unsqueeze(1)
+                attn_inputs[i] = attn_target[i].clone()
+                rnn_inputs[i] = attn_target[i].clone()
+                rnn_sent_score[i] = curr_prediction[0]
+                attn_sent_score[i] = curr_prediction[0]
             
-            predicted = torch.maximum(predicted_rnn, predicted_attn)    # choose word with max embed value (batch_size)
-            sampled_ids.append(predicted)
-            inputs = self.embed(predicted)                       # inputs: (batch_size, embed_size)
-            inputs = inputs.unsqueeze(1)                         # inputs: (batch_size, 1, embed_size)
-
-            
-
-        sampled_ids = torch.stack(sampled_ids, 1)                # sampled_ids: (batch_size, max_seq_length)
-        sampled_ids = sampled_ids[0].cpu().numpy()               # (1, max_len) -> (max_len)
-        sampled_caption = []
-        for word_id in sampled_ids:
-            word = vocabulary.itos[word_id]
-            sampled_caption.append(word)
-            if word == "<EOS>":
-                break
-        return sampled_caption
+        sampled_list = rnn_prev_sampled + attn_prev_sampled
+        final_captions = []
+        for sampled_ids in sampled_list:
+            sampled_ids = torch.stack(sampled_ids, 1)                # sampled_ids: (batch_size, max_seq_length)
+            sampled_ids = sampled_ids[0].cpu().numpy()               # (1, max_len) -> (max_len)
+            sampled_caption = []
+            for word_id in sampled_ids:
+                word = vocabulary.itos[word_id]
+                sampled_caption.append(word)
+                if word == "<EOS>":
+                    break
+            final_captions.append(sampled_caption)
+        return final_captions
 
         
 
-
-
 if __name__ == '__main__':
-    from dataset import get_dataloader, get_dataset
-    imgs = "/home/yandex/DLW2021/davidhay/coco/train2017/"
-    annots = "/home/yandex/DLW2021/davidhay/coco/annotations/captions_train2017.json"
+    #from dataset import get_dataloader, get_dataset
+    '''
+    imgs = "/home/yandex/DLW2021/pelegv/coco/train2017/"
+    annots = "/home/yandex/DLW2021/pelegv/coco/annotations/captions_train2017.json"
     batch = 2
     ds = get_dataset(imgs, annots)
     loader = get_dataloader(ds, batch, shuffle=False)
@@ -624,3 +647,12 @@ if __name__ == '__main__':
     decoding = dec(features, caption, length)
     print(f"RNN out: {decoding[0].shape}")
     print(f"ATTN out: {decoding[1].shape}")
+    '''
+
+    #example for batch size 2 and top 2 scores
+    a = torch.tensor([[5, 4], [20, 19]])
+    b = torch.tensor([[6, 3], [15, 10]])
+    c = torch.cat((a,b), dim=1)
+    print(c)
+    d = torch.topk(c, 2)
+    print(d)

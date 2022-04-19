@@ -1,5 +1,5 @@
 #!/bin/bash
-source /home/yandex/DLW2021/davidhay/anaconda3/bin/activate
+source /home/yandex/DLW2021/pelegv/anaconda3/bin/activate
 conda info --envs
 conda install -y nb_conda_kernels
 conda install -y ipykernel

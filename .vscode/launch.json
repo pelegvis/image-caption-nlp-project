@@ -1,0 +1,22 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Main",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["--overfit",
+                "--load_vocab",
+                "/home/yandex/DLW2021/pelegv/coco/train2017/",
+                "/home/yandex/DLW2021/pelegv/coco/annotations/captions_train2017.json",
+                "100"
+                    ],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}
