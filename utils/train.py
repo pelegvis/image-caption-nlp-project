@@ -7,7 +7,7 @@ import torch
 from functools import partial
 from tqdm import tqdm
 import sys
-#from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 import os
 
 def show_image(img, title=None, transform=True, f_name=""):
@@ -52,11 +52,8 @@ def train(max_epochs: int, model, optimizer, data_loader, device: str, checkpoin
     # Monitor
     writer = SummaryWriter()
     # init model
-    if torch.cuda.device_count()>1:
-        model = torch.nn.DataParallel(model)
-        model.to(device)
-    else:
-        model = model.to(device)
+    
+    model = model.to(device)
     criterion = CrossEntropyLoss().to(device)   
     model.train()
     # start epochs
@@ -65,7 +62,7 @@ def train(max_epochs: int, model, optimizer, data_loader, device: str, checkpoin
             tepoch.set_description(f"Epoch:{epoch+1}")
             for idx, (img, captions, length) in enumerate(tepoch):
                 optimizer.zero_grad()
-                # img = img.to(device)
+                img = img.to(device)
                 captions = captions.to(device).long()
                 length = torch.tensor(length)
                 output = model(img, captions, length)
@@ -76,37 +73,37 @@ def train(max_epochs: int, model, optimizer, data_loader, device: str, checkpoin
                 optimizer.step()
                 tepoch.set_postfix(rnn_loss=loss_rnn.item(), attn_loss=loss_attn.item())
                 writer.add_scalar("Train loss", loss.item(), idx + len(data_loader)*epoch)
-                if idx > 0 and idx % progress == 0:
+                if idx >= 0 and idx % progress == 0:
                     model.eval()
                     torch.save({
                         'epoch': epoch,
                         'model_state_dict': model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'loss': loss }, checkpoint)
-                    with torch.no_grad():
-                        output = model(img.to(device), captions.to(device).long(), length)
-                    print(f"\nepoch {epoch}")
-                    print(f"Loss {loss.item():.5f}\n")
-                    print(f"\nForward")
-                    out_cap = torch.argmax(output[0][0], dim=1)
-                    demo_cap = ' '.join([data_loader.dataset.vocab.itos[idx2.item(
-                    )] for idx2 in out_cap if idx2.item() != data_loader.dataset.vocab.stoi["<PAD>"]])
-                    #show_image(img[0], title=demo_cap, f_name=None)
-                    print(demo_cap)
-                    with torch.no_grad():
-                        demo_cap = model.caption_image(img[0:1].to(
-                            device), vocab=data_loader.dataset.vocab, max_len=30)
-                    demo_cap = ' '.join(demo_cap)
-                    print("Predicted")
-                    print(demo_cap)
-                    # show_image(img_show[0], title=demo_cap, f_name="Predicted.png")
-                    print("Original")
-                    cap = captions[0]
+                    # with torch.no_grad():
+                    #     output = model(img.to(device), captions.to(device).long(), length)
+                    # print(f"\nepoch {epoch}")
+                    # print(f"Loss {loss.item():.5f}\n")
+                    # print(f"\nForward")
+                    # out_cap = torch.argmax(output[0][0], dim=1)
+                    # demo_cap = ' '.join([data_loader.dataset.vocab.itos[idx2.item(
+                    # )] for idx2 in out_cap if idx2.item() != data_loader.dataset.vocab.stoi["<PAD>"]])
+                    # #show_image(img[0], title=demo_cap, f_name=None)
+                    # print(demo_cap)
+                    # with torch.no_grad():
+                    #     demo_cap = model.caption_image(img[0:1].to(
+                    #         device), vocab=data_loader.dataset.vocab, max_len=30)
+                    # demo_cap = ' '.join(demo_cap)
+                    # print("Predicted")
+                    # print(demo_cap)
+                    # # show_image(img_show[0], title=demo_cap, f_name="Predicted.png")
+                    # print("Original")
+                    # cap = captions[0]
 
-                    # print(cap.long())
-                    demo_cap = ' '.join([data_loader.dataset.vocab.itos[idx2.item(
-                    )] for idx2 in cap if idx2.item() != data_loader.dataset.vocab.stoi["<PAD>"]])
-                    print(demo_cap)
+                    # # print(cap.long())
+                    # demo_cap = ' '.join([data_loader.dataset.vocab.itos[idx2.item(
+                    # )] for idx2 in cap if idx2.item() != data_loader.dataset.vocab.stoi["<PAD>"]])
+                    # print(demo_cap)
                     # show_image(img_show[0], title=demo_cap, transform=False, f_name="Original.png")
                     sys.stdout.flush()
                     model.train()
@@ -168,14 +165,17 @@ def overfit(model, device, data_loader, T=250, img_n = 1):
             print(info[i])
             print("")
                
-
-    output = model(img, caption, length)[1]
+   
+    outputs = model(img, caption, length)
     show_img = img.to("cpu")
     print(f"\n\nLoss {loss.item():.5f}\n")
-    out_cap = torch.argmax(output[0], dim=1)
-    demo_cap = ' '.join([data_loader.dataset.vocab.itos[idx2.item(
-    )] for idx2 in out_cap if idx2.item() != data_loader.dataset.vocab.stoi["<PAD>"]])
-    print(demo_cap)
+    print("Sub-models forward pass result")
+    for i in range(len(outputs)):
+        output = outputs[i]
+        out_cap = torch.argmax(output[0], dim=1)
+        demo_cap = ' '.join([data_loader.dataset.vocab.itos[idx2.item(
+        )] for idx2 in out_cap if idx2.item() != data_loader.dataset.vocab.stoi["<PAD>"]])
+        print(demo_cap)
     #show_image(show_img[0], title=demo_cap, f_name="Forward.png")
     print("Predicted")
     with torch.no_grad():
