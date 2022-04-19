@@ -603,7 +603,7 @@ class MultiDecoder(nn.Module):
                 attn_prev_sampled[i].append(attn_tmp_predicted.squeeze(1).squeeze(1))
                 scores_list.append([attn_sent_score[i], attn_tmp_predicted, attn_prev_sampled[i], {"attn", attn_tmp_score.item()}])
             
-            scores_list = sorted(scores_list, key=lambda i: i[0])   # sort sentences according to the sentenece's score
+            scores_list = sorted(scores_list, key=lambda i: i[0].item(), reverse=True)   # sort sentences according to the sentenece's score
             # set variables for next round
             for i in range(K):
                 curr_prediction = scores_list[i]
