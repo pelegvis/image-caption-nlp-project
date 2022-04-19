@@ -6,7 +6,7 @@ import torch
 from functools import partial
 from tqdm import tqdm
 import sys
-#from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 import os
 
 def show_image(img, title=None, transform=True, f_name=""):
@@ -72,7 +72,7 @@ def train(max_epochs: int, model, optimizer, data_loader, device: str, checkpoin
                 optimizer.step()
                 tepoch.set_postfix(rnn_loss=loss_rnn.item(), attn_loss=loss_attn.item())
                 writer.add_scalar("Train loss", loss.item(), idx + len(data_loader)*epoch)
-                if idx > 0 and idx % progress == 0:
+                if idx >= 0 and idx % progress == 0:
                     model.eval()
                     torch.save({
                         'epoch': epoch,
@@ -159,18 +159,21 @@ def overfit(model, device, data_loader, T=250, img_n = 1):
         for i in range(2):
             final_cap[i] = ' '.join(demo_cap[i])
         model.train()
-        #for i in range(2):
-            #print(final_cap[i])
-            #print("")
+        for i in range(2):
+            print(final_cap[i])
+            print("")
                
-
-    output = model(img, caption, length)[1]
+   
+    outputs = model(img, caption, length)
     show_img = img.to("cpu")
     print(f"\n\nLoss {loss.item():.5f}\n")
-    out_cap = torch.argmax(output[0], dim=1)
-    demo_cap = ' '.join([data_loader.dataset.vocab.itos[idx2.item(
-    )] for idx2 in out_cap if idx2.item() != data_loader.dataset.vocab.stoi["<PAD>"]])
-    print(demo_cap)
+    print("Sub-models forward pass result")
+    for i in range(len(outputs)):
+        output = outputs[i]
+        out_cap = torch.argmax(output[0], dim=1)
+        demo_cap = ' '.join([data_loader.dataset.vocab.itos[idx2.item(
+        )] for idx2 in out_cap if idx2.item() != data_loader.dataset.vocab.stoi["<PAD>"]])
+        print(demo_cap)
     #show_image(show_img[0], title=demo_cap, f_name="Forward.png")
     print("Predicted")
     with torch.no_grad():
