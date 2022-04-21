@@ -154,23 +154,26 @@ def overfit(model, device, data_loader, T=250, img_n = 1):
         print("Predicted:")
         model.eval()
         with torch.no_grad():
-            demo_cap, info = model.caption_image(img[0:1].to(
+            demo_cap = model.caption_image(img[0:1].to(
                 device), vocab=data_loader.dataset.vocab, max_len=15)
-        final_cap = [None for i in range(2)]
+        final_cap = ' '.join(demo_cap)
+        print(final_cap)
+        print("Sub-models forward pass result")
         for i in range(2):
-            final_cap[i] = ' '.join(demo_cap[i])
+            o = output[i]
+            out_cap = torch.argmax(o[0], dim=1)
+            demo_cap = ' '.join([data_loader.dataset.vocab.itos[idx2.item(
+            )] for idx2 in out_cap if idx2.item() != data_loader.dataset.vocab.stoi["<PAD>"]])
+            print(demo_cap)
         model.train()
-        for i in range(2):
-            print(final_cap[i])
-            print(info[i])
-            print("")
+        
                
-   
+
     outputs = model(img, caption, length)
     show_img = img.to("cpu")
     print(f"\n\nLoss {loss.item():.5f}\n")
     print("Sub-models forward pass result")
-    for i in range(len(outputs)):
+    for i in range(2):
         output = outputs[i]
         out_cap = torch.argmax(output[0], dim=1)
         demo_cap = ' '.join([data_loader.dataset.vocab.itos[idx2.item(
@@ -180,9 +183,9 @@ def overfit(model, device, data_loader, T=250, img_n = 1):
     print("Predicted")
     with torch.no_grad():
         model.eval()
-        demo_cap, info = model.caption_image(show_img[0:1].to(
+        demo_cap = model.caption_image(show_img[0:1].to(
             device), vocab=data_loader.dataset.vocab, max_len=15)
-        demo_cap = ' '.join(demo_cap[0])
+        demo_cap = ' '.join(demo_cap)
         model.train()
         print(demo_cap)
     #    show_image(show_img[0], title=demo_cap,

@@ -527,7 +527,8 @@ class MultiDecoder(nn.Module):
         self.attn_layers = 3
         self.k = 2
         self.embed = nn.Embedding(vocab_size, embed_size)
-        self.attn_decoder = nn.Transformer(512, 4, 3, 3, batch_first=True, dim_feedforward=1024)
+        decoder_layer = nn.TransformerDecoderLayer(d_model=512, nhead=4, batch_first=True, dim_feedforward=1024)
+        self.attn_decoder = nn.TransformerDecoder(decoder_layer, 3)
         self.rnn_decoder = nn.GRU(input_size=embed_size, hidden_size=hidden_size, num_layers=self.rnn_layers, batch_first=True)
         self.fc_rnn_out = nn.Linear(hidden_size, vocab_size)
         self.fc_attn_out = nn.Linear(embed_size, vocab_size)
@@ -557,10 +558,19 @@ class MultiDecoder(nn.Module):
         rnn_out_fc = self.fc_rnn_out(rnn_output_padded)
 
         # Attention Decoder
-        attn_out = self.attn_decoder(combined, captions_embed)
-        attn_out_fc = self.fc_attn_out(attn_out)
-
-        return rnn_out_fc, attn_out_fc
+        # tgt_mask = nn.Transformer.generate_square_subsequent_mask(captions_embed.shape[1]).to(device)
+        # attn_out = self.attn_decoder(captions_embed, feat_unsqueeze, tgt_mask=tgt_mask)
+        # attn_out_fc = self.fc_attn_out(attn_out)
+        atnn_targets = [self.embed(torch.ones([captions_embed.shape[0]], device=device, dtype=torch.int))]
+        attn_out_final = list()
+        for i in range(0, captions_embed.shape[1]):
+            tgts = torch.stack(atnn_targets, dim=1)
+            attn_out = self.attn_decoder(tgts, feat_unsqueeze)
+            attn_out_fc = self.fc_attn_out(attn_out)
+            atnn_targets.append(captions_embed[:,i])
+            attn_out_final.append(attn_out_fc[:, -1])
+        attention_out = torch.stack(attn_out_final, dim=1)
+        return rnn_out_fc, attention_out
     
     def caption_features(self, features, vocabulary, max_len=77):
         """Generate captions for given image features using greedy search."""
@@ -577,7 +587,6 @@ class MultiDecoder(nn.Module):
         rnn_sent_score = [0 for j in range(K)]
         attn_sent_score = [0 for j in range(K)]
         sent_info = [ [] for j in range (K)]
-        
         
         # produce 2 captions
         for _ in range(max_len):
@@ -613,8 +622,7 @@ class MultiDecoder(nn.Module):
                 curr_prediction[1] = torch.reshape(curr_prediction[1], (1, ))
                 #curr_prediction[1].unsqueeze(1)
                 rnn_prev_sampled[i] = curr_prediction[2]
-                attn_prev_sampled[i] = curr_prediction[2]
-                
+                attn_prev_sampled[i] = curr_prediction[2]    
                 #if(len(curr_prediction[2]) < 2):
                 #    last_caption_embed = self.embed(torch.tensor([1]).to(device)).unsqueeze(1)  # embed <SOS>
                 #else:
@@ -640,9 +648,30 @@ class MultiDecoder(nn.Module):
                     break
             final_captions.append(sampled_caption)
         return final_captions, sent_info
+        
+        
+    def caption_features_atn(self, features, vocabulary, max_len=77):
+        """Generate captions for given image features using greedy search."""
+        feat_unsqueeze = features.unsqueeze(dim=1)
+        atnn_targets = [self.embed(torch.ones([1], device=device, dtype=torch.int))]
+        tmp = list()
+        caption = list()
+        for i in range(0, max_len):
+            tgts = torch.stack(atnn_targets, dim=1)
+            attn_out = self.attn_decoder(tgts, feat_unsqueeze)
+            attn_out_fc = self.fc_attn_out(attn_out)
+            topv, topi = attn_out_fc.max(2)
+            topi = topi[:,-1]
+            atnn_targets.append(self.embed(topi))
+            tmp.append(topi.item())
+        for word in tmp:
+            word = vocabulary.itos[word]
+            caption.append(word)
+            if word == "<EOS>":
+                break
+        return caption
 
-
-    def caption_features_rnn(self, features, vocabulary, max_len=77):
+    def caption_features_rnn(self,features, vocabulary, max_len=77):
         """Generate captions for given image features using greedy search."""
         states = None
         sampled_ids = []
@@ -654,6 +683,8 @@ class MultiDecoder(nn.Module):
             sampled_ids.append(predicted)
             inputs = self.embed(predicted)                       # inputs: (batch_size, embed_size)
             inputs = inputs.unsqueeze(1)                         # inputs: (batch_size, 1, embed_size)
+            
+
         sampled_ids = torch.stack(sampled_ids, 1)                # sampled_ids: (batch_size, max_seq_length)
         sampled_ids = sampled_ids[0].cpu().numpy()               # (1, max_len) -> (max_len)
         sampled_caption = []
@@ -663,7 +694,6 @@ class MultiDecoder(nn.Module):
             if word == "<EOS>":
                 break
         return sampled_caption
-        
 
 if __name__ == '__main__':
     #from dataset import get_dataloader, get_dataset
