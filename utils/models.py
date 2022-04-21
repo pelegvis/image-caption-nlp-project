@@ -637,8 +637,8 @@ class MultiDecoder(nn.Module):
                 attn_tmp_score, attn_tmp_predicted = attn_outputs.max(2)
                 attn_tmp_predicted = attn_tmp_predicted[:,-1]
                 attn_tmp_score = attn_tmp_score[:,-1]
-                norm_score = attn_tmp_score
-                attn_sent_score[i] += norm_score.item()
+                #norm_score = attn_tmp_score
+                #attn_sent_score[i] += norm_score.item()
                 # attn_target[i].append(self.embed(topi))
                 #attn_tmp_predicted = attn_tmp_predicted.item()
                 attn_sent_score[i] += attn_tmp_score.item()
@@ -652,8 +652,8 @@ class MultiDecoder(nn.Module):
                 curr_prediction = scores_list[i]
                 curr_prediction[1] = torch.reshape(curr_prediction[1], (1, ))
                 #curr_prediction[1].unsqueeze(1)
-                rnn_prev_sampled[i] = curr_prediction[2]
-                attn_prev_sampled[i] = curr_prediction[2]    
+                rnn_prev_sampled[i] = curr_prediction[2].copy()
+                attn_prev_sampled[i] = curr_prediction[2].copy()    
                 # attn_inputs[i] = torch.cat((attn_inputs[i], attn_target[i]), dim=1)
                 #attn_target[i] = self.embed(curr_prediction[1]).unsqueeze(1)
                 attn_target[i].append(self.embed(curr_prediction[1]))
