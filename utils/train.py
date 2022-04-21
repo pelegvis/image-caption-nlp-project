@@ -154,10 +154,11 @@ def overfit(model, device, data_loader, T=250, img_n = 1):
         print("Predicted:")
         model.eval()
         with torch.no_grad():
-            demo_cap = model.caption_image(img[0:1].to(
+            demo_cap, info = model.caption_image(img[0:1].to(
                 device), vocab=data_loader.dataset.vocab, max_len=15)
         final_cap = ' '.join(demo_cap)
         print(final_cap)
+        print(info)
         print("Sub-models forward pass result")
         for i in range(2):
             o = output[i]
@@ -165,6 +166,7 @@ def overfit(model, device, data_loader, T=250, img_n = 1):
             demo_cap = ' '.join([data_loader.dataset.vocab.itos[idx2.item(
             )] for idx2 in out_cap if idx2.item() != data_loader.dataset.vocab.stoi["<PAD>"]])
             print(demo_cap)
+            #print(info)
         model.train()
         
                
@@ -183,11 +185,12 @@ def overfit(model, device, data_loader, T=250, img_n = 1):
     print("Predicted")
     with torch.no_grad():
         model.eval()
-        demo_cap = model.caption_image(show_img[0:1].to(
+        demo_cap, info = model.caption_image(show_img[0:1].to(
             device), vocab=data_loader.dataset.vocab, max_len=15)
         demo_cap = ' '.join(demo_cap)
         model.train()
         print(demo_cap)
+        #print(info)
     #    show_image(show_img[0], title=demo_cap,
     #               transform=False, f_name="Predicted.png")
     print("Original")
@@ -198,6 +201,7 @@ def overfit(model, device, data_loader, T=250, img_n = 1):
     #show_image(show_img[0], title=demo_cap,
     #           transform=False, f_name="Original.png")
     print(demo_cap)
+    
 
 def validate_model(model, data_loader, device):
     model = model.to(device)

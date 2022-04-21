@@ -54,7 +54,8 @@ class EncoderCNNV2(nn.Module):
         with torch.no_grad():
             features = self.cnn(images)
         features = features.reshape(features.size(0), -1)
-        features = self.norm(self.fc_out(features))
+        #features = self.norm(self.fc_out(features))
+        features = self.fc_out(features)
         return features
 
 
@@ -509,6 +510,12 @@ class CNNtoRNN(nn.Module):
             output = self.decoderRNN.caption_features(features, vocab, max_len)
         return output
 
+    def caption_image_atn(self, image, vocab, max_len):
+        with torch.no_grad():
+            features = self.encoderCNN(image)
+            output = self.decoderRNN.caption_features_atn(features, vocab, max_len)
+        return output
+
     '''def train(self, mode=True):
         super().train(mode)
         if not self.encoderCNN.train_CNN:
@@ -582,8 +589,9 @@ class MultiDecoder(nn.Module):
         attn_prev_sampled = [ [] for j in range (K) ]
         inputs = features.unsqueeze(1)
         rnn_inputs = [ inputs.clone() for j in range(K) ]
-        attn_inputs = [ inputs.clone() for j in range(K) ]
-        attn_target = [self.embed(torch.tensor([1]).to(device)).unsqueeze(1) for j in range(K) ]    # Embed <SOS>
+        # attn_inputs = [ inputs.clone() for j in range(K) ]
+        attn_target = [[self.embed(torch.tensor([1]).to(device))] for j in range(K) ]    # Embed <SOS>
+        #attn_target = [self.embed(torch.ones([1], device=device, dtype=torch.int))] for j in range(K)]
         rnn_sent_score = [0 for j in range(K)]
         attn_sent_score = [0 for j in range(K)]
         sent_info = [ [] for j in range (K)]
@@ -596,15 +604,19 @@ class MultiDecoder(nn.Module):
             for i in range(K):
                 hiddens[i], states[i] = self.rnn_decoder(rnn_inputs[i], states[i])          # hiddens: (batch_size, 1, hidden_size)
                 rnn_outputs = self.fc_rnn_out(hiddens[i].squeeze(1))            # outputs:  (batch_size, vocab_size)
+                #rnn_outputs = torch.sigmoid(rnn_outputs, dim=-1)
                 rnn_tmp_score, rnn_tmp_predicted = rnn_outputs.max(1)      # rnn_predicted: (batch_size)
+                norm_score = rnn_tmp_score
                 #rnn_sent_score[i] += rnn_tmp_score.item()
-                rnn_sent_score[i] += -1
+                rnn_sent_score[i] += norm_score.item()
+                #rnn_sent_score[i] += -1
                 # print(f"rnn: {rnn_tmp_score.item()}")
                 rnn_prev_sampled[i].append(rnn_tmp_predicted)
-                scores_list.append([rnn_sent_score[i], rnn_tmp_predicted, rnn_prev_sampled[i], {"rnn", rnn_tmp_score.item()}])
+                scores_list.append([rnn_sent_score[i], rnn_tmp_predicted, rnn_prev_sampled[i], {"rnn", norm_score.item()}])
                 
             
             # get predicted word from attention decoder
+            '''
             for i in range(K):
                 attn_out = self.attn_decoder(attn_inputs[i], attn_target[i])
                 attn_outputs = self.fc_attn_out(attn_out)
@@ -614,7 +626,26 @@ class MultiDecoder(nn.Module):
                 # print(f"attn: {attn_tmp_score.item()}")
                 attn_prev_sampled[i].append(attn_tmp_predicted.squeeze(1))
                 scores_list.append([attn_sent_score[i], attn_tmp_predicted, attn_prev_sampled[i], {"attn", attn_tmp_score.item()}])
-            
+            '''
+
+            # new attention decoder
+            for i in range(K):
+                tgts = torch.stack(attn_target[i], dim=1)
+                attn_out = self.attn_decoder(tgts, inputs)
+                attn_outputs = self.fc_attn_out(attn_out)
+                attn_outputs = torch.sigmoid(attn_outputs)
+                attn_tmp_score, attn_tmp_predicted = attn_outputs.max(2)
+                attn_tmp_predicted = attn_tmp_predicted[:,-1]
+                attn_tmp_score = attn_tmp_score[:,-1]
+                norm_score = attn_tmp_score
+                attn_sent_score[i] += norm_score.item()
+                # attn_target[i].append(self.embed(topi))
+                #attn_tmp_predicted = attn_tmp_predicted.item()
+                attn_sent_score[i] += attn_tmp_score.item()
+                attn_prev_sampled[i].append(attn_tmp_predicted)
+                scores_list.append([attn_sent_score[i], attn_tmp_predicted, attn_prev_sampled[i], {"attn", norm_score.item()}])
+
+
             scores_list = sorted(scores_list, key=lambda i: i[0], reverse=True)   # sort sentences according to the sentenece's score
             # set variables for next round
             for i in range(K):
@@ -623,17 +654,15 @@ class MultiDecoder(nn.Module):
                 #curr_prediction[1].unsqueeze(1)
                 rnn_prev_sampled[i] = curr_prediction[2]
                 attn_prev_sampled[i] = curr_prediction[2]    
-                #if(len(curr_prediction[2]) < 2):
-                #    last_caption_embed = self.embed(torch.tensor([1]).to(device)).unsqueeze(1)  # embed <SOS>
-                #else:
-                #    last_caption_embed = self.embed(curr_prediction[2][-2]).unsqueeze(1)
-                #attn_inputs[i] = torch.cat((attn_inputs[i], last_caption_embed), dim=1)
-                attn_inputs[i] = torch.cat((attn_inputs[i], attn_target[i]), dim=1)
-                attn_target[i] = self.embed(curr_prediction[1]).unsqueeze(1)
-                rnn_inputs[i] = attn_target[i].clone()
+                # attn_inputs[i] = torch.cat((attn_inputs[i], attn_target[i]), dim=1)
+                #attn_target[i] = self.embed(curr_prediction[1]).unsqueeze(1)
+                attn_target[i].append(self.embed(curr_prediction[1]))
+                #attn_target[i] = torch.cat(attn_target[i], self.embed(curr_prediction[1]).unsqueeze(1))
+                rnn_inputs[i] = self.embed(curr_prediction[1]).unsqueeze(1)
                 rnn_sent_score[i] = curr_prediction[0]
                 attn_sent_score[i] = curr_prediction[0]
                 sent_info[i].append(curr_prediction[3])
+            
             
         sampled_list = rnn_prev_sampled + attn_prev_sampled
         final_captions = []
@@ -647,9 +676,9 @@ class MultiDecoder(nn.Module):
                 if word == "<EOS>":
                     break
             final_captions.append(sampled_caption)
-        return final_captions, sent_info
+        return final_captions[0], sent_info[0]
         
-        
+
     def caption_features_atn(self, features, vocabulary, max_len=77):
         """Generate captions for given image features using greedy search."""
         feat_unsqueeze = features.unsqueeze(dim=1)
@@ -669,7 +698,7 @@ class MultiDecoder(nn.Module):
             caption.append(word)
             if word == "<EOS>":
                 break
-        return caption
+        return caption, None
 
     def caption_features_rnn(self,features, vocabulary, max_len=77):
         """Generate captions for given image features using greedy search."""
@@ -693,7 +722,7 @@ class MultiDecoder(nn.Module):
             sampled_caption.append(word)
             if word == "<EOS>":
                 break
-        return sampled_caption
+        return sampled_caption, None
 
 if __name__ == '__main__':
     #from dataset import get_dataloader, get_dataset

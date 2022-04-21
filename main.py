@@ -62,7 +62,7 @@ if __name__ == '__main__':
     
     print(model)
     if args.overfit:
-        overfit(model, device, data_loader, args.T, 2)
+        overfit(model, device, data_loader, args.T, 17)
         # model.load_state_dict(torch.load("checkpoint.torch")["model_state_dict"])
         # validate_model(model, data_loader, device)
 
