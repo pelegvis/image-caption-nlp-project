@@ -158,7 +158,7 @@ def overfit(model, device, data_loader, T=250, img_n = 1):
                 device), vocab=data_loader.dataset.vocab, max_len=15)
         final_cap = ' '.join(demo_cap)
         print(final_cap)
-        print(info)
+        #print(info)
         print("Sub-models forward pass result")
         for i in range(2):
             o = output[i]
