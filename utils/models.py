@@ -607,9 +607,9 @@ class MultiDecoder(nn.Module):
                 #rnn_outputs = torch.sigmoid(rnn_outputs, dim=-1)
                 rnn_tmp_score, rnn_tmp_predicted = rnn_outputs.max(1)      # rnn_predicted: (batch_size)
                 norm_score = rnn_tmp_score
-                #rnn_sent_score[i] += rnn_tmp_score.item()
+                rnn_sent_score[i] += rnn_tmp_score.item()
                 #rnn_sent_score[i] += norm_score.item()
-                rnn_sent_score[i] += -1
+                #rnn_sent_score[i] += -1
                 # print(f"rnn: {rnn_tmp_score.item()}")
                 rnn_prev_sampled[i].append(rnn_tmp_predicted)
                 scores_list.append([rnn_sent_score[i], rnn_tmp_predicted, rnn_prev_sampled[i], {"rnn", norm_score.item()}])
