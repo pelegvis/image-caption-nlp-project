@@ -10,7 +10,8 @@ import pickle
 import json
 import argparse
 import torch.optim as optim
-
+import numpy as np
+os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
 class Expirement:
     def __init__(self, mode: str = "train", use_train: bool = False, epochs: int = 3, model: CNNtoRNN = None,
@@ -37,7 +38,7 @@ class Expirement:
         self.fname = f"{self.model.encoderCNN.__class__.__name__}_{self.model.decoderRNN.__class__.__name__}_{self.model.decoderRNN.hidden_size}_{self.model.decoderRNN.embed_size}"
         if load_model:
             self.model.load_state_dict(
-                torch.load(f"model_weights.pt")["model_state_dict"])
+                torch.load(f"/home/yandex/DLW2021/davidhay/checkpoint_2.pt")["model_state_dict"])
             self.model.eval()
         print(f"Starting Expirement with {self.fname}")
         print(f"Using train set: {self.use_train}")
@@ -98,13 +99,18 @@ class Expirement:
         bleu_3 = 0
         bleu_4 = 0
         dataiter = iter(self.dataloader)
-        for idx in range(len(self.dataloader)):
+        T = len(self.dataloader)
+        
+        model_parameters = filter(lambda p: p.requires_grad, self.model.decoderRNN.parameters())
+        params = sum([np.prod(p.size()) for p in model_parameters])
+        print(f"Params: {params:,}")
+        for idx in range(T):
             img, caption, _ = next(dataiter)
             img = img.to(self.device)
             caption = caption.to(self.device)
             real_cap = self.dataset.get_call_caps(idx)
             with torch.no_grad():
-                hypothesis = self.model.caption_image(
+                hypothesis, info = self.model.caption_image(
                     img, self.dataset.vocab, max_len=77)
             bleu_1 += sentence_bleu(real_cap, hypothesis, weights=(1, 0, 0, 0))
             bleu_2 += sentence_bleu(real_cap, hypothesis,
@@ -115,10 +121,10 @@ class Expirement:
                                     weights=(0.25, 0.25, 0.25, 0.25))
             if ((idx+1) % 100) == 0:
                 print(f"Validated {idx+1} images")
-        bleu_1 = bleu_1/len(self.dataloader)
-        bleu_2 = bleu_2/len(self.dataloader)
-        bleu_3 = bleu_3/len(self.dataloader)
-        bleu_4 = bleu_4/len(self.dataloader)
+        bleu_1 = bleu_1/T
+        bleu_2 = bleu_2/T
+        bleu_3 = bleu_3/T
+        bleu_4 = bleu_4/T
         result = {"bleu-1": bleu_1, "bleu-2": bleu_2,
                   "bleu-3": bleu_3, "bleu-4": bleu_4}
         fname = f"{self.dir_prefix}/bleu_{self.fname}.data"
@@ -172,7 +178,7 @@ def init_args():
     parser.add_argument(
         "--cnn", choices=["v1", "v2"], help="CNN encoder version", required=False)
     parser.add_argument("--rnn", choices=["v1", "v2", "v3", "v4",
-                                          "v5", "greedy"], help="RNN Decoder version", required=False)
+                                          "v5", "greedy", "multi"], help="RNN Decoder version", required=False)
     parser.add_argument("--use-train", action="store_true", help="Use train of val of COCO", dest="use_train")
     parser.add_argument("--plot", action="store_true", help="Don't run any expirement, just plot")
     return parser.parse_args()
@@ -180,23 +186,10 @@ def init_args():
 
 def fix_model(model:CNNtoRNN, rnn, cnn, dataset):
     vocab_size = len(dataset.vocab)
-    if cnn == "v1":
-        cnn = EncoderCNN(embed, False)
-    else:
-        cnn = EncoderCNNV2(embed)
-    if rnn == "v1":
-        rnn = DecoderRNN(embed, hidden_size=hidden, vocab_size=vocab_size, n_features=embed)
-    elif rnn == "v2":
-        rnn = DecoderRNNV2(embed, hidden, vocab_size, embed)
-    elif rnn == "v3":
-        rnn = DecoderRNNV3(embed, hidden, vocab_size, embed)
-    elif rnn == "v4": 
-        rnn = DecoderRNNV4(embed, hidden, vocab_size, None)
-    elif rnn == "v5": 
-        rnn = DecoderRNNV5(embed, hidden, vocab_size, None)
-    else:
-        rnn = DecoderRNNEGreed(embed, hidden, vocab_size, embed)
     
+    cnn = EncoderCNNV2(embed)
+    
+    rnn = MultiDecoder(embed, hidden, vocab_size)
     model.encoderCNN = cnn
     model.decoderRNN = rnn
     return model
@@ -207,13 +200,14 @@ if __name__ == '__main__':
     hidden = args.hidden
     embed = args.embed
         
-    exp = Expirement("train", False, args.epochs, model, False, args.username, args.cnn, args.rnn)
+    #exp = Expirement("train", False, args.epochs, model, False, args.username, args.cnn, args.rnn)
+    exp = None
     if args.plot:
         exp.plot_bleu_results()
         exp.plot_multiple_losses()
     else:
         # Create a new model and train it. Records loss over train.
-        exp.run_train_expirement()
+        #exp.run_train_expirement()
         # New expirement, loads previously trained model and validate.
         exp = Expirement("eval", False, args.epochs, model, True, args.username, args.cnn, args.rnn)
         exp.run_validation_expirement()

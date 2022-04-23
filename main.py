@@ -29,6 +29,7 @@ def init_args():
     parser.add_argument("--progress", type=int, default=250, help="Show training loss every X iterations")
     parser.add_argument("--checkpoint", type=str, default="checkpoint.pt", help="path to model's checkpoint")
     parser.add_argument("--resume", action="store_true", help="Resume training")
+    parser.add_argument("--validate", action="store_true", help="Run validation")
     return parser.parse_args()
 
 
@@ -62,9 +63,8 @@ if __name__ == '__main__':
     
     print(model)
     if args.overfit:
-        overfit(model, device, data_loader, args.T, 38)
-        # model.load_state_dict(torch.load("checkpoint.torch")["model_state_dict"])
-        # validate_model(model, data_loader, device)
-
+        overfit(model, device, data_loader, args.T, 31)
+    elif args.validate:
+        validate_model(model, data_loader, device)
     else:
         train(args.T, model, optimizer, data_loader, device, args.checkpoint, args.progress)

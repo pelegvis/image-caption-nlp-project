@@ -7,7 +7,7 @@ import torch
 from functools import partial
 from tqdm import tqdm
 import sys
-# from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 import os
 
 def show_image(img, title=None, transform=True, f_name=""):
@@ -130,7 +130,7 @@ def overfit(model, device, data_loader, T=250, img_n = 1):
     criterion = CrossEntropyLoss().to(device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     model.train()
-
+    loss = torch.tensor([0])
 
     dataiter = iter(data_loader)
     for _ in range(0, img_n):
@@ -183,6 +183,7 @@ def overfit(model, device, data_loader, T=250, img_n = 1):
         print(demo_cap)
     #show_image(show_img[0], title=demo_cap, f_name="Forward.png")
     print("Predicted")
+    print("Beam Search:")
     with torch.no_grad():
         model.eval()
         demo_cap, info = model.caption_image(show_img[0:1].to(
@@ -190,9 +191,25 @@ def overfit(model, device, data_loader, T=250, img_n = 1):
         demo_cap = ' '.join(demo_cap)
         model.train()
         print(demo_cap)
-        #print(info)
-    #    show_image(show_img[0], title=demo_cap,
-    #               transform=False, f_name="Predicted.png")
+        print(info)
+        show_image(show_img[0], title=demo_cap,
+                   transform=True, f_name="Predicted.png")
+    print("Attention:")
+    with torch.no_grad():
+        model.eval()
+        demo_cap, info = model.caption_image_atn(show_img[0:1].to(
+            device), vocab=data_loader.dataset.vocab, max_len=15)
+        demo_cap = ' '.join(demo_cap)
+        model.train()
+        print(demo_cap)
+    print("RNN:")
+    with torch.no_grad():
+        model.eval()
+        demo_cap, info = model.caption_image_rnn(show_img[0:1].to(
+            device), vocab=data_loader.dataset.vocab, max_len=15)
+        demo_cap = ' '.join(demo_cap)
+        model.train()
+        print(demo_cap)
     print("Original")
     cap = caption[0]
     # print(cap.long())
